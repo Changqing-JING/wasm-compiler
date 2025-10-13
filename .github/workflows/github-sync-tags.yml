@@ -1,0 +1,24 @@
+name: sync tags to github
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name to sync"
+        required: true
+        type: string
+
+jobs:
+  sync-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 #fixme url
+      - run: |
+          set -e
+          git remote add github https://${{ secrets.OSS_GITHUB_NAME }}:${{ secrets.OSS_GITHUB_TOKEN }}@github.com/Schleifner/wasm-compiler.git
+
+          # Push the specific tag
+          TAG_NAME="${{ github.event.inputs.tag_name }}"
+          git push github "$TAG_NAME"
