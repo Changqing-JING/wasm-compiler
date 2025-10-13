@@ -13,7 +13,17 @@ jobs:
   sync-branches:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4 #fixme url
+      - uses: actions/checkout@v4
+      - name: Check token availability
+        run: |
+          if [ -z "${{ secrets.OSS_GITHUB_TOKEN }}" ]; then
+            echo "ERROR: OSS_GITHUB_TOKEN is empty or not set"
+            exit 1
+          else
+            echo "OSS_GITHUB_TOKEN is available (length: ${#OSS_GITHUB_TOKEN})"
+          fi
+        env:
+          OSS_GITHUB_TOKEN: ${{ secrets.OSS_GITHUB_TOKEN }}
       - run: |
           set -e
           # Add remote without credentials in URL
