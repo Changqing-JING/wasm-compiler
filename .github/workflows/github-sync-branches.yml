@@ -1,0 +1,24 @@
+name: sync branches to github
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - "release/*"
+  workflow_dispatch:
+
+jobs:
+  sync-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 #fixme url
+      - run: |
+          set -e
+          # Add remote without credentials in URL
+          git remote add github https://github.com/Schleifner/wasm-compiler.git
+
+          # Push the current branch using http.extraHeader for authentication
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          git -c http.extraHeader="Authorization: Bearer ${{ secrets.OSS_GITHUB_TOKEN }}" push github "$BRANCH_NAME" -f
