@@ -15,15 +15,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: -1
-      - name: Configure git for release tagging
-        run: |
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Release Bot"
-
-      - name: Create release tag
+      - name: Extract version from RELEASENOTES.md
+        id: get_version
         run: |
           version_info=$(sed -n '/^##/{s/^##//;s/ //g;p;q;}' RELEASENOTES.md)
-          new_tag_name=$version_info
-          echo "new_tag_name will be: $new_tag_name"
-          git tag -a $new_tag_name -m '[GITHUB CI] push new tag'
-          git push origin HEAD:${{ github.ref_name }} $new_tag_name
+          echo "version=$version_info" >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          github_token: ${{ secrets.TECH_USER_ATC_GITHUB_TOKEN }}
+          custom_tag: ${{ steps.get_version.outputs.version }}
+          tag_prefix: ""
+          create_annotated_tag: true

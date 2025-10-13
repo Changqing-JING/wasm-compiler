@@ -1,5 +1,5 @@
 # Wasm Compiler Release Notes
-
+## 3.0.4
 ## 3.0.3
 Add u32 and u64 type to WasmValue
 
