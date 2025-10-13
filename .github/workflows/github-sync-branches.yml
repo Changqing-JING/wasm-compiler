@@ -1,0 +1,43 @@
+name: sync branches to github
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - "release/*"
+  workflow_dispatch:
+
+jobs:
+  sync-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check token availability
+        run: |
+          if [ -z "${{ secrets.OSS_GITHUB_TOKEN }}" ]; then
+            echo "ERROR: OSS_GITHUB_TOKEN is empty or not set"
+            exit 1
+          else
+            echo "OSS_GITHUB_TOKEN is available (length: ${#OSS_GITHUB_TOKEN})"
+          fi
+        env:
+          OSS_GITHUB_TOKEN: ${{ secrets.OSS_GITHUB_TOKEN }}
+      - run: |
+          set -e
+          # Completely override Git authentication
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+
+          # Unset any existing GitHub token that might interfere
+          unset GITHUB_TOKEN
+
+          # Configure git with explicit user info
+          git config --global user.name "${{ secrets.OSS_GITHUB_NAME }}"
+          git config --global user.email "${{ secrets.OSS_GITHUB_NAME }}@users.noreply.github.com"
+
+          # Use URL with embedded credentials - force Git to use our token
+          git remote add github https://${{ secrets.OSS_GITHUB_NAME }}:${{ secrets.OSS_GITHUB_TOKEN }}@github.com/Schleifner/wasm-compiler.git
+
+          # Push with explicit token in environment
+          GIT_ASKPASS=echo git push github "$BRANCH_NAME" -f
