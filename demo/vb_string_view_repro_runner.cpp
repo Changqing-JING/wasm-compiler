@@ -48,9 +48,8 @@ State &state() {
 
 namespace vb_string_view_repro {
 
-void initFromBytecode(vb::Span<uint8_t const> const &bytecode, vb::Span<vb::NativeSymbol const> const &linkedFunctions,
-                      bool const allowUnknownImports) {
-  state().instance_.initFromBytecode(bytecode, linkedFunctions, allowUnknownImports);
+void initFromCompiledBinary(vb::Span<uint8_t const> const &compiledBinary, vb::Span<vb::NativeSymbol const> const &linkedFunctions) {
+  state().instance_.initFromCompiledBinary(compiledBinary, linkedFunctions, vb::Span<uint8_t const>{});
 }
 
 void start() {

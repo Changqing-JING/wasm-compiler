@@ -24,7 +24,7 @@
 
 namespace vb_string_view_repro {
 
-void initFromBytecode(vb::Span<uint8_t const> const &bytecode, vb::Span<vb::NativeSymbol const> const &linkedFunctions, bool allowUnknownImports);
+void initFromCompiledBinary(vb::Span<uint8_t const> const &compiledBinary, vb::Span<vb::NativeSymbol const> const &linkedFunctions);
 
 void start();
 
