@@ -1,76 +1,42 @@
-/*
- * Copyright (C) 2025 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
- * SPDX-License-Identifier: Apache-2.0
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 #include <array>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
-#include "src/config.hpp"
-//
+#undef NVALGRIND
+#include <valgrind/cachegrind.h>
+#include <valgrind/valgrind.h>
+
 #include "src/WasmModule/WasmModule.hpp"
-#include "src/core/common/BinaryModule.hpp"
+#include "src/config.hpp"
+#include "src/core/common/NativeSymbol.hpp"
 #include "src/core/common/function_traits.hpp"
+#include "src/core/common/util.hpp"
 #include "src/core/runtime/TrapException.hpp"
+#include "src/utils/MemUtils.hpp"
 #include "src/utils/STDCompilerLogger.hpp"
 #include "src/utils/StackTop.hpp"
-#ifdef VB_WIN32_OR_POSIX
-#include <fstream>
 
-#include "src/utils/MemUtils.hpp"
-std::vector<uint8_t> bytecode;
-static vb::Span<const uint8_t> loadWasmBytecode(std::string const &filePath) {
-  std::cout << "Loading file ..." << std::endl;
+using namespace vb;
 
+std::vector<uint8_t> loadFile(std::string const &filePath) {
   std::ifstream file(filePath, std::ios::binary);
-
-  // Check if the file was opened successfully
   if (!file) {
     throw std::runtime_error("Failed to open file: " + filePath);
   }
-
-  // Read the file contents into a vector
-  bytecode = std::vector<uint8_t>((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-
-  return vb::Span<const uint8_t>(bytecode.data(), bytecode.size());
+  return std::vector<uint8_t>((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
-static uint8_t const *getStackTop() {
-  vb::MemUtils::StackInfo const stackInfo{vb::MemUtils::getStackInfo()};
-  uint8_t const *const stackTop{vb::pCast<uint8_t *>(stackInfo.stackTop)};
-  return stackTop;
+void saveFile(std::string const &filePath, uint8_t const *data, size_t size) {
+  std::ofstream file(filePath, std::ios::binary);
+  if (!file) {
+    throw std::runtime_error("Failed to open file for writing: " + filePath);
+  }
+  file.write(reinterpret_cast<char const *>(data), static_cast<std::streamsize>(size));
 }
-
-#else
-// NOLINTNEXTLINE(modernize-avoid-c-arrays)
-uint8_t const bcArr[] = {
-    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f, 0x02, 0x0b,
-    0x01, 0x03, 0x65, 0x6e, 0x76, 0x03, 0x6c, 0x6f, 0x67, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01,
-    0x03, 0x72, 0x75, 0x6e, 0x00, 0x01, 0x0a, 0x08, 0x01, 0x06, 0x00, 0x20, 0x00, 0x10, 0x00, 0x0b,
-};
-
-vb::Span<const uint8_t> loadWasmBytecode(std::string const & /*filePath*/) {
-  return vb::Span<const uint8_t>(bcArr, sizeof(bcArr));
-}
-
-static uint8_t *getStackTop() {
-  return nullptr;
-}
-#endif
 
 int32_t logInt(uint32_t const data, void *const ctx) {
   static_cast<void>(ctx);
@@ -79,36 +45,69 @@ int32_t logInt(uint32_t const data, void *const ctx) {
 }
 
 int main(int argc, char *argv[]) {
-#ifdef VB_WIN32_OR_POSIX
-  if (argc < 2) {
-    std::cerr << "Usage: " << argv[0] << " <wasm_file>" << std::endl;
-    return EXIT_FAILURE;
+  if (argc < 3) {
+    std::cout << "Usage:" << std::endl;
+    std::cout << "  " << argv[0] << " compile <input.wasm> <output.bin>" << std::endl;
+    std::cout << "  " << argv[0] << " run <input.bin>" << std::endl;
+    return 1;
   }
-#else
-  static_cast<void>(argc);
-#endif
-  try {
-    vb::Span<const uint8_t> const bytecodeSpan = loadWasmBytecode(argv[1]);
 
+  std::string mode = argv[1];
+
+  try {
     vb::WasmModule::initEnvironment(&malloc, &realloc, &free);
 
-    auto staticallyLinkedSymbols = make_array(STATIC_LINK("env", "log", logInt));
-    vb::STDCompilerLogger stdCompilerLogger{};
-    vb::WasmModule module(1000000U, stdCompilerLogger, false, nullptr, 0U);
+    if (mode == "compile") {
+      std::string wasmPath = argv[2];
+      std::string outBinPath = argv[3];
 
-    module.initFromBytecode(bytecodeSpan, vb::Span<vb::NativeSymbol const>(staticallyLinkedSymbols.data(), staticallyLinkedSymbols.size()), true);
-    std::cout << "Compilation finished." << std::endl;
+      std::vector<uint8_t> const bytecode = loadFile(wasmPath);
+      vb::STDCompilerLogger stdCompilerLogger{};
+      vb::WasmModule module(10000000U, stdCompilerLogger, false, nullptr, 0U);
 
-    module.start(getStackTop());
+      std::cout << "Compiling " << wasmPath << " ..." << std::endl;
+      WasmModule::CompileResult const compileResult =
+          module.compile(vb::Span<const uint8_t>(bytecode.data(), bytecode.size()), vb::Span<vb::NativeSymbol const>());
 
-    std::array<vb::WasmValue, 1U> const res{module.callExportedFunctionWithName<1U, int32_t>(getStackTop(), "run", 42)};
-    std::cout << "Result: " << res[0].i32 << std::endl;
-  } catch (vb::TrapException &e) {
-    std::cout << e.what() << ": " << static_cast<uint32_t>(e.getTrapCode()) << std::endl;
+      saveFile(outBinPath, compileResult.getModule().data(), compileResult.getModule().size());
+      std::cout << "Saved compiled binary to " << outBinPath << " (" << compileResult.getModule().size() << " bytes)" << std::endl;
+    } else if (mode == "run") {
+      std::string binPath = argv[2];
+      std::vector<uint8_t> const machineCodeBytes = loadFile(binPath);
+
+      vb::STDCompilerLogger stdCompilerLogger{};
+      vb::WasmModule module(10000000U, stdCompilerLogger, false, nullptr, 0U);
+
+      module.initFromCompiledBinary(vb::Span<const uint8_t>(machineCodeBytes.data(), machineCodeBytes.size()), vb::Span<vb::NativeSymbol const>(),
+                                    vb::Span<const uint8_t>());
+
+      uint8_t const *stackTop = vb::pCast<uint8_t const *>(vb::getStackTop());
+
+      CACHEGRIND_START_INSTRUMENTATION;
+      module.start(stackTop);
+
+      std::array<vb::WasmValue, 1U> res{};
+      try {
+        res = module.callExportedFunctionWithName<1U>(stackTop, "_start");
+      } catch (TrapException &e) {
+        CACHEGRIND_STOP_INSTRUMENTATION;
+        std::cout << e.what() << ": " << static_cast<uint32_t>(e.getTrapCode()) << std::endl;
+        vb::WasmModule::destroyEnvironment();
+        return 1;
+      }
+      CACHEGRIND_STOP_INSTRUMENTATION;
+
+      std::cout << "Execution finished successfully! Result: " << res[0].i32 << std::endl;
+    } else {
+      std::cerr << "Unknown mode: " << mode << std::endl;
+      vb::WasmModule::destroyEnvironment();
+      return 1;
+    }
+
+    vb::WasmModule::destroyEnvironment();
+    return 0;
   } catch (const std::exception &e) {
-    std::cout << e.what() << std::endl;
+    std::cout << "Exception: " << e.what() << std::endl;
+    return 1;
   }
-
-  vb::WasmModule::destroyEnvironment();
-  return 0;
 }
