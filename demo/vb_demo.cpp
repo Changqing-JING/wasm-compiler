@@ -6,10 +6,6 @@
 #include <iostream>
 #include <vector>
 
-#undef NVALGRIND
-#include <valgrind/cachegrind.h>
-#include <valgrind/valgrind.h>
-
 #include "src/WasmModule/WasmModule.hpp"
 #include "src/config.hpp"
 #include "src/core/common/NativeSymbol.hpp"
@@ -83,20 +79,16 @@ int main(int argc, char *argv[]) {
 
       uint8_t const *stackTop = vb::pCast<uint8_t const *>(vb::getStackTop());
 
-      CACHEGRIND_START_INSTRUMENTATION;
       module.start(stackTop);
 
       std::array<vb::WasmValue, 1U> res{};
       try {
         res = module.callExportedFunctionWithName<1U>(stackTop, "_start");
       } catch (TrapException &e) {
-        CACHEGRIND_STOP_INSTRUMENTATION;
         std::cout << e.what() << ": " << static_cast<uint32_t>(e.getTrapCode()) << std::endl;
         vb::WasmModule::destroyEnvironment();
         return 1;
       }
-      CACHEGRIND_STOP_INSTRUMENTATION;
-
       std::cout << "Execution finished successfully! Result: " << res[0].i32 << std::endl;
     } else {
       std::cerr << "Unknown mode: " << mode << std::endl;
